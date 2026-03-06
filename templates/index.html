@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weight Tracker</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f0f4f8;
+            color: #333;
+            min-height: 100vh;
+        }
+        header {
+            background: #2c7be5;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+        }
+        header h1 { font-size: 1.8rem; }
+        header p { opacity: 0.85; font-size: 0.9rem; margin-top: 4px; }
+        .container { max-width: 700px; margin: 30px auto; padding: 0 16px; }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+        .card h2 { font-size: 1.1rem; margin-bottom: 16px; color: #2c7be5; }
+        .form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+        .form-group { flex: 1; min-width: 120px; }
+        label { display: block; font-size: 0.8rem; font-weight: 600; color: #666; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+        input[type="date"], input[type="number"], input[type="text"] {
+            width: 100%; padding: 10px 12px; border: 1.5px solid #ddd;
+            border-radius: 8px; font-size: 1rem; transition: border-color 0.2s;
+        }
+        input:focus { outline: none; border-color: #2c7be5; }
+        button.btn {
+            background: #2c7be5; color: white; border: none;
+            padding: 11px 24px; border-radius: 8px; font-size: 1rem;
+            cursor: pointer; transition: background 0.2s; width: 100%; margin-top: 8px;
+        }
+        button.btn:hover { background: #1a68d1; }
+        .msg { padding: 10px 14px; border-radius: 8px; margin-bottom: 16px; font-size: 0.9rem; display: none; }
+        .msg.success { background: #d4edda; color: #155724; display: block; }
+        .msg.error { background: #f8d7da; color: #721c24; display: block; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px 12px; font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 2px solid #eee; }
+        td { padding: 12px; border-bottom: 1px solid #f0f0f0; }
+        tr:last-child td { border-bottom: none; }
+        .weight-val { font-size: 1.1rem; font-weight: 700; color: #2c7be5; }
+        .delete-btn { background: none; border: none; color: #ccc; cursor: pointer; font-size: 1.1rem; transition: color 0.2s; }
+        .delete-btn:hover { color: #e53935; }
+        .empty { text-align: center; color: #aaa; padding: 30px; }
+        .chart-container { position: relative; height: 220px; }
+        canvas { width: 100% !important; }
+        @media (max-width: 500px) {
+            .form-row { flex-direction: column; }
+        }
+    </style>
+</head>
+<body>
+<header>
+    <h1>Weight Tracker</h1>
+    <p>Log your daily weight and track your progress</p>
+</header>
+<div class="container">
+    <div class="card">
+        <h2>Log Today's Weight</h2>
+        <div id="msg" class="msg"></div>
+        <div class="form-row">
+            <div class="form-group">
+                <label for="date">Date</label>
+                <input type="date" id="date">
+            </div>
+            <div class="form-group">
+                <label for="weight">Weight (kg)</label>
+                <input type="number" id="weight" step="0.1" min="20" max="300" placeholder="e.g. 75.5">
+            </div>
+            <div class="form-group" style="flex:2">
+                <label for="note">Note (optional)</label>
+                <input type="text" id="note" placeholder="e.g. after breakfast">
+            </div>
+        </div>
+        <button class="btn" onclick="saveEntry()">Save Entry</button>
+    </div>
+    <div class="card">
+        <h2>Progress Chart</h2>
+        <div class="chart-container">
+            <canvas id="chart"></canvas>
+        </div>
+    </div>
+    <div class="card">
+        <h2>History</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Weight</th>
+                    <th>Note</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="entries-body">
+                <tr><td colspan="4" class="empty">No entries yet. Log your first weight above!</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+    let chart = null;
+
+    // Set today's date as default
+    document.getElementById('date').value = new Date().toISOString().split('T')[0];
+
+    async function loadEntries() {
+        const res = await fetch('/api/entries');
+        const entries = await res.json();
+        renderTable(entries);
+        renderChart(entries);
+    }
+
+    function renderTable(entries) {
+        const tbody = document.getElementById('entries-body');
+        if (!entries.length) {
+            tbody.innerHTML = '<tr><td colspan="4" class="empty">No entries yet. Log your first weight above!</td></tr>';
+            return;
+        }
+        tbody.innerHTML = entries.map(e => `
+            <tr>
+                <td>${formatDate(e.date)}</td>
+                <td><span class="weight-val">${e.weight.toFixed(1)}</span> kg</td>
+                <td>${e.note || '-'}</td>
+                <td><button class="delete-btn" onclick="deleteEntry('${e.date}')" title="Delete">&#x2715;</button></td>
+            </tr>
+        `).join('');
+    }
+
+    function renderChart(entries) {
+        const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+        const labels = sorted.map(e => formatDate(e.date));
+        const data = sorted.map(e => e.weight);
+        const ctx = document.getElementById('chart').getContext('2d');
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Weight (kg)',
+                    data,
+                    borderColor: '#2c7be5',
+                    backgroundColor: 'rgba(44,123,229,0.1)',
+                    tension: 0.3,
+                    fill: true,
+                    pointRadius: 5,
+                    pointBackgroundColor: '#2c7be5'
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: false, ticks: { callback: v => v + ' kg' } }
+                }
+            }
+        });
+    }
+
+    async function saveEntry() {
+        const date = document.getElementById('date').value;
+        const weight = document.getElementById('weight').value;
+        const note = document.getElementById('note').value;
+        const msgEl = document.getElementById('msg');
+        msgEl.className = 'msg';
+        if (!date || !weight) {
+            msgEl.textContent = 'Please enter both a date and weight.';
+            msgEl.className = 'msg error';
+            return;
+        }
+        const res = await fetch('/api/entries', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date, weight: parseFloat(weight), note })
+        });
+        if (res.ok) {
+            msgEl.textContent = 'Weight saved successfully!';
+            msgEl.className = 'msg success';
+            document.getElementById('weight').value = '';
+            document.getElementById('note').value = '';
+            loadEntries();
+            setTimeout(() => { msgEl.className = 'msg'; }, 3000);
+        } else {
+            msgEl.textContent = 'Error saving entry. Please try again.';
+            msgEl.className = 'msg error';
+        }
+    }
+
+    async function deleteEntry(date) {
+        if (!confirm('Delete entry for ' + formatDate(date) + '?')) return;
+        await fetch('/api/entries/' + date, { method: 'DELETE' });
+        loadEntries();
+    }
+
+    function formatDate(dateStr) {
+        const d = new Date(dateStr + 'T00:00:00');
+        return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+
+    loadEntries();
+</script>
+</body>
+</html>
