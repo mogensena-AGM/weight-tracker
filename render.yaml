@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: weight-tracker-backend
+    env: python
+    region: frankfurt
+    buildCommand: "pip install -r backend/requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: weight-tracker-db
+          property: connectionString
+
+databases:
+  - name: weight-tracker-db
+    databaseName: weightdb
+    user: weightuser
+    region: frankfurt
